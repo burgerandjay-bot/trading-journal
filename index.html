@@ -192,6 +192,11 @@ tr:hover td{background:#fafcff}
     </div>
 
     <div class="card">
+      <div class="card-title">星期勝率</div>
+      <div class="ptable-wrap"><div id="weekday-table"><div class="loading">載入中...</div></div></div>
+    </div>
+
+    <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
         <div class="card-title" style="margin-bottom:0;border:none;padding:0">所有交易</div>
         <button class="btn-export" onclick="exportCSV()">匯出 CSV</button>
@@ -271,16 +276,14 @@ tr:hover td{background:#fafcff}
 
 <!-- 新增商品/策略 Modal -->
 <div id="custom-modal" class="custom-modal">
-  <div class="custom-box">
-    <h4 id="custom-modal-title">新增商品</h4>
-    <div class="form-group" style="margin-bottom:16px">
-      <label id="custom-modal-label">商品名稱</label>
-      <input id="custom-input" placeholder="輸入名稱..."/>
+  <div class="custom-box" style="max-width:440px">
+    <h4 id="custom-modal-title">管理商品</h4>
+    <div id="custom-list" style="margin-bottom:14px;max-height:220px;overflow-y:auto"></div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <input id="custom-input" placeholder="輸入新名稱..." style="flex:1;padding:9px 12px;border:1px solid #ddd;border-radius:8px;font-size:14px;font-family:inherit"/>
+      <button class="btn btn-primary" style="padding:9px 16px" onclick="saveCustomItem()">新增</button>
     </div>
-    <div style="display:flex;gap:10px">
-      <button class="btn btn-primary" onclick="saveCustomItem()">新增</button>
-      <button class="btn btn-secondary" onclick="closeCustomModal()">取消</button>
-    </div>
+    <button class="btn btn-secondary" style="width:100%" onclick="closeCustomModal()">關閉</button>
   </div>
 </div>
 
@@ -331,20 +334,6 @@ function setSyncStatus(s) {
   else{dot.className='dot offline';text.textContent='離線';}
 }
 
-// 監聽商品清單
-onValue(symbolsRef, snap => {
-  const data = snap.val();
-  symbols = data ? [...new Set([...DEFAULT_SYMBOLS, ...Object.values(data)])] : [...DEFAULT_SYMBOLS];
-  renderSymbolSelects();
-});
-
-// 監聽策略清單
-onValue(strategiesRef, snap => {
-  const data = snap.val();
-  strategies = data ? [...new Set([...DEFAULT_STRATEGIES, ...Object.values(data)])] : [...DEFAULT_STRATEGIES];
-  renderStrategySelects();
-});
-
 // 監聽交易資料
 onValue(tradesRef, snap => {
   const data = snap.val();
@@ -383,12 +372,53 @@ function renderStrategySelects() {
   }
 }
 
-// 新增商品/策略 Modal
+// 新增/管理商品/策略 Modal
+let symbolKeysMap = {}, strategyKeysMap = {};
+
+onValue(symbolsRef, snap => {
+  const data = snap.val();
+  symbolKeysMap = data || {};
+  symbols = [...new Set([...DEFAULT_SYMBOLS, ...Object.values(symbolKeysMap)])];
+  renderSymbolSelects();
+  if($('custom-modal').classList.contains('open') && customModalType==='symbol') renderCustomList();
+});
+
+onValue(strategiesRef, snap => {
+  const data = snap.val();
+  strategyKeysMap = data || {};
+  strategies = [...new Set([...DEFAULT_STRATEGIES, ...Object.values(strategyKeysMap)])];
+  renderStrategySelects();
+  if($('custom-modal').classList.contains('open') && customModalType==='strategy') renderCustomList();
+});
+
+function renderCustomList() {
+  const el = $('custom-list');
+  const isSymbol = customModalType === 'symbol';
+  const keysMap = isSymbol ? symbolKeysMap : strategyKeysMap;
+  const defaults = isSymbol ? DEFAULT_SYMBOLS : DEFAULT_STRATEGIES;
+  const entries = Object.entries(keysMap);
+  if(!entries.length){ el.innerHTML='<div style="color:#aaa;font-size:13px;padding:8px 0">目前無自訂項目</div>'; return; }
+  el.innerHTML = entries.map(([k,v])=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f0f0">
+      <span style="font-size:14px">${v}</span>
+      <button class="btn btn-danger" style="padding:3px 10px;font-size:12px" onclick="deleteCustomItem('${k}')">刪除</button>
+    </div>`).join('');
+}
+
+window.deleteCustomItem = async function(key) {
+  if(!confirm('確定刪除這個項目？')) return;
+  const isSymbol = customModalType === 'symbol';
+  try {
+    await remove(ref(db, (isSymbol?'symbols':'strategies')+'/'+key));
+  } catch(e){ alert('刪除失敗：'+e.message); }
+};
+
 window.openCustomModal = function(type) {
   customModalType = type;
-  $('custom-modal-title').textContent = type==='symbol' ? '新增交易商品' : '新增策略';
-  $('custom-modal-label').textContent = type==='symbol' ? '商品名稱' : '策略名稱';
+  $('custom-modal-title').textContent = type==='symbol' ? '管理交易商品' : '管理策略';
   $('custom-input').value = '';
+  $('custom-input').placeholder = type==='symbol' ? '輸入商品名稱...' : '輸入策略名稱...';
+  renderCustomList();
   $('custom-modal').classList.add('open');
   setTimeout(()=>$('custom-input').focus(), 100);
 };
@@ -398,15 +428,11 @@ window.saveCustomItem = async function() {
   if(!val){ alert('請輸入名稱'); return; }
   try {
     if(customModalType==='symbol'){
-      if(!symbols.includes(val)){
-        await push(symbolsRef, val);
-      }
+      if(!symbols.includes(val)) await push(symbolsRef, val);
     } else {
-      if(!strategies.includes(val)){
-        await push(strategiesRef, val);
-      }
+      if(!strategies.includes(val)) await push(strategiesRef, val);
     }
-    closeCustomModal();
+    $('custom-input').value = '';
   } catch(e){ alert('新增失敗：'+e.message); }
 };
 
@@ -514,8 +540,39 @@ function renderMetrics(){
   $('m-avg-loss').textContent=avgLoss!==null?avgLoss.toFixed(1):'-';
 }
 
-// 策略勝率
-function renderStrategyTable(){
+const WEEKDAYS = ['日','一','二','三','四','五','六'];
+function getWeekday(dateStr){ return WEEKDAYS[new Date(dateStr).getDay()]; }
+function getWeekdayNum(dateStr){ return new Date(dateStr).getDay(); }
+
+// 星期勝率
+function renderWeekdayTable(){
+  const el=$('weekday-table');
+  if(!trades.length){el.innerHTML='<div class="empty" style="padding:20px">尚無資料</div>';return;}
+  const groups={};
+  for(let i=0;i<7;i++) groups[i]={label:WEEKDAYS[i],count:0,wins:0,losses:0,totalPnl:0};
+  trades.forEach(t=>{
+    const d=getWeekdayNum(t.date);
+    groups[d].count++; groups[d].totalPnl+=t.pnl;
+    if(t.pnl>0) groups[d].wins++; else groups[d].losses++;
+  });
+  // 只顯示有資料的星期，按週一到週日排序（週一=1~週日=0）
+  const order=[1,2,3,4,5,6,0];
+  el.innerHTML=`<table class="ptable">
+    <tr><th>星期</th><th>次數</th><th>勝率</th><th>獲利</th><th>虧損</th><th>總損益(點)</th></tr>
+    ${order.filter(i=>groups[i].count>0).map(i=>{
+      const g=groups[i];
+      const wr=Math.round(g.wins/g.count*100);
+      return`<tr>
+        <td style="font-weight:600">週${g.label}</td>
+        <td>${g.count}</td>
+        <td style="font-weight:600;color:${wr>=50?'#27ae60':'#e74c3c'}">${wr}%</td>
+        <td class="pnl-pos">${g.wins}</td>
+        <td class="pnl-neg">${g.losses}</td>
+        <td class="${g.totalPnl>=0?'pnl-pos':'pnl-neg'}">${g.totalPnl>=0?'+':''}${g.totalPnl.toFixed(0)}</td>
+      </tr>`;
+    }).join('')}
+  </table>`;
+}
   const el=$('strategy-table');
   if(!trades.length){el.innerHTML='<div class="empty" style="padding:20px">尚無資料</div>';return;}
   const groups={};
@@ -604,9 +661,8 @@ function renderPeriodTable(period){
   }
 }
 
-// 交易列表
 window.renderList = function(){
-  renderMetrics(); renderPeriodTable(currentPeriod); renderStrategyTable();
+  renderMetrics(); renderPeriodTable(currentPeriod); renderStrategyTable(); renderWeekdayTable();
   const dirF=$('flt-dir').value, pnlF=$('flt-pnl').value, symF=$('flt-sym').value.toLowerCase(), stratF=$('flt-strat').value;
   let data=trades.filter(t=>{
     if(dirF&&t.dir!==dirF)return false;
@@ -622,8 +678,9 @@ window.renderList = function(){
     <tr><th>時間</th><th>商品</th><th>方向</th><th>口數</th><th>損益(點)</th><th>損益(元)</th><th>策略</th><th>備註</th><th>截圖</th><th>操作</th></tr>
     ${data.map(t=>{
       const amt=t.pnl*t.qty*PNL_PER_POINT;
+      const wd=getWeekday(t.date);
       return`<tr>
-        <td style="white-space:nowrap;color:#888;font-size:12px">${t.date.replace('T',' ')}</td>
+        <td style="white-space:nowrap;color:#888;font-size:12px">${t.date.replace('T',' ')}<br><span style="color:#3498db;font-size:11px">週${wd}</span></td>
         <td style="font-weight:600">${t.symbol}</td>
         <td><span class="badge ${t.dir==='多'?'badge-long':'badge-short'}">${t.dir==='多'?'做多':'做空'}</span></td>
         <td>${t.qty}</td>
@@ -638,7 +695,6 @@ window.renderList = function(){
         </td>
       </tr>`;
     }).join('')}</table>`;
-  // 更新策略篩選
   renderStrategySelects();
 };
 
