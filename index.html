@@ -573,6 +573,9 @@ function renderWeekdayTable(){
     }).join('')}
   </table>`;
 }
+
+// 策略勝率
+function renderStrategyTable(){
   const el=$('strategy-table');
   if(!trades.length){el.innerHTML='<div class="empty" style="padding:20px">尚無資料</div>';return;}
   const groups={};
