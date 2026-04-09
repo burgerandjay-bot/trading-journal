@@ -164,14 +164,19 @@ tr:hover td{background:#fafcff}
 
   <!-- 交易紀錄 -->
   <div id="tab-list" class="section">
-    <div class="metrics">
+    <div class="metrics" style="grid-template-columns:repeat(5,1fr)">
       <div class="metric"><div class="label">總交易次數</div><div class="value" id="m-count">0</div></div>
       <div class="metric green"><div class="label">總損益（點）</div><div class="value" id="m-total">0</div></div>
       <div class="metric green"><div class="label">總損益（元）</div><div class="value" id="m-total-amt">0</div></div>
       <div class="metric amber"><div class="label">整體勝率</div><div class="value" id="m-winrate">-</div></div>
       <div class="metric blue"><div class="label">做多勝率</div><div class="value" id="m-long-wr">-</div></div>
+    </div>
+    <div class="metrics" style="grid-template-columns:repeat(5,1fr)">
       <div class="metric blue"><div class="label">做空勝率</div><div class="value" id="m-short-wr">-</div></div>
-      <div class="metric red"><div class="label">平均虧損</div><div class="value neg" id="m-avg-loss">-</div></div>
+      <div class="metric green"><div class="label">平均獲利（點）</div><div class="value pos" id="m-avg-win">-</div></div>
+      <div class="metric red"><div class="label">平均虧損（點）</div><div class="value neg" id="m-avg-loss">-</div></div>
+      <div class="metric green"><div class="label">平均獲利（元）</div><div class="value pos" id="m-avg-win-amt">-</div></div>
+      <div class="metric amber"><div class="label">期望值（元）</div><div class="value" id="m-ev">-</div></div>
     </div>
 
     <div class="card">
@@ -526,18 +531,32 @@ function renderMetrics(){
   const total=trades.reduce((s,t)=>s+t.pnl,0);
   const totalAmt=trades.reduce((s,t)=>s+(t.pnl*t.qty*PNL_PER_POINT),0);
   const wins=trades.filter(t=>t.pnl>0), losses=trades.filter(t=>t.pnl<0);
-  const wr=trades.length?Math.round(wins.length/trades.length*100):null;
+  const wrRate=trades.length?(wins.length/trades.length):null;
+  const lossRate=trades.length?(losses.length/trades.length):null;
+  const wr=wrRate!==null?Math.round(wrRate*100):null;
   const longs=trades.filter(t=>t.dir==='多'), shorts=trades.filter(t=>t.dir==='空');
   const longWr=longs.length?Math.round(longs.filter(t=>t.pnl>0).length/longs.length*100):null;
   const shortWr=shorts.length?Math.round(shorts.filter(t=>t.pnl>0).length/shorts.length*100):null;
-  const avgLoss=losses.length?(losses.reduce((s,t)=>s+t.pnl,0)/losses.length):null;
+  const avgWinPnl=wins.length?(wins.reduce((s,t)=>s+t.pnl,0)/wins.length):null;
+  const avgLossPnl=losses.length?(losses.reduce((s,t)=>s+t.pnl,0)/losses.length):null;
+  const avgWinAmt=wins.length?(wins.reduce((s,t)=>s+(t.pnl*t.qty*PNL_PER_POINT),0)/wins.length):null;
+  const avgLossAmt=losses.length?(losses.reduce((s,t)=>s+(t.pnl*t.qty*PNL_PER_POINT),0)/losses.length):null;
+  // 期望值 = 勝率 * 平均獲利(元) + 敗率 * 平均虧損(元)
+  const ev=(wrRate!==null&&avgWinAmt!==null&&avgLossAmt!==null)
+    ?(wrRate*avgWinAmt + lossRate*avgLossAmt)
+    :null;
   $('m-count').textContent=trades.length;
   const mT=$('m-total'); mT.textContent=(total>=0?'+':'')+total.toFixed(0); mT.className='value '+(total>=0?'pos':'neg');
   const mTA=$('m-total-amt'); mTA.textContent=(totalAmt>=0?'+':'')+totalAmt.toLocaleString(); mTA.className='value '+(totalAmt>=0?'pos':'neg');
   $('m-winrate').textContent=wr!==null?wr+'%':'-';
   $('m-long-wr').textContent=longWr!==null?longWr+'%':'-';
   $('m-short-wr').textContent=shortWr!==null?shortWr+'%':'-';
-  $('m-avg-loss').textContent=avgLoss!==null?avgLoss.toFixed(1):'-';
+  $('m-avg-win').textContent=avgWinPnl!==null?'+'+avgWinPnl.toFixed(1):'-';
+  $('m-avg-loss').textContent=avgLossPnl!==null?avgLossPnl.toFixed(1):'-';
+  $('m-avg-win-amt').textContent=avgWinAmt!==null?'+'+Math.round(avgWinAmt).toLocaleString():'-';
+  const mEv=$('m-ev');
+  mEv.textContent=ev!==null?(ev>=0?'+':'')+Math.round(ev).toLocaleString():'-';
+  mEv.className='value '+(ev===null?'':(ev>=0?'pos':'neg'));
 }
 
 const WEEKDAYS = ['日','一','二','三','四','五','六'];
