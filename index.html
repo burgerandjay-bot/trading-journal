@@ -105,6 +105,20 @@ tr:hover td{background:#fafcff}
   <h1>📈 交易日誌</h1>
   <div class="sync-status"><span class="dot" id="sync-dot"></span><span id="sync-text">連線中...</span></div>
 </header>
+
+<!-- 未登入列 -->
+<div id="login-bar" style="display:none;background:#fff3cd;padding:10px 32px;align-items:center;justify-content:space-between;border-bottom:1px solid #ffc107">
+  <span style="font-size:13px;color:#856404">👋 目前為訪客模式（唯讀），登入後可新增與編輯交易</span>
+  <button onclick="loginWithGoogle()" style="background:#1e3a5f;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500">🔑 Google 登入</button>
+</div>
+
+<!-- 已登入列 -->
+<div id="user-bar" style="display:none;background:#e8f5e9;padding:8px 32px;align-items:center;justify-content:space-between;border-bottom:1px solid #a5d6a7">
+  <span style="font-size:13px;color:#2e7d32">✅ 已登入：<span id="user-email"></span></span>
+  <button onclick="logoutUser()" style="background:none;border:1px solid #a5d6a7;color:#2e7d32;padding:6px 14px;border-radius:8px;font-size:13px;cursor:pointer">登出</button>
+</div>
+
+<div id="main-content">
 <div class="container">
   <div class="tabs">
     <button class="tab active" onclick="switchTab('add',this)">新增交易</button>
@@ -155,10 +169,11 @@ tr:hover td{background:#fafcff}
         </div>
       </div>
       <div style="display:flex;gap:10px">
-        <button class="btn btn-primary" id="save-btn" onclick="addTrade()">儲存紀錄</button>
-        <button class="btn btn-secondary" onclick="clearForm()">清除</button>
+        <button class="btn btn-primary owner-only" id="save-btn" onclick="addTrade()">儲存紀錄</button>
+        <button class="btn btn-secondary owner-only" onclick="clearForm()">清除</button>
       </div>
-      <div class="msg" id="add-msg"></div>
+      <div id="add-msg" class="msg"></div>
+      <div class="owner-only" style="display:none" id="login-hint" style="margin-top:10px;font-size:13px;color:#888">請先登入才能儲存紀錄</div>
     </div>
   </div>
 
@@ -233,6 +248,7 @@ tr:hover td{background:#fafcff}
     <div class="card"><div class="chart-title">做多 vs 做空 勝率比較</div><div class="chart-wrap" style="height:220px"><canvas id="chart-dir"></canvas></div></div>
   </div>
 </div>
+</div><!-- end main-content -->
 
 <!-- 圖片放大 -->
 <div id="img-modal" class="img-modal" onclick="closeImgModal()">
@@ -294,7 +310,8 @@ tr:hover td{background:#fafcff}
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getDatabase, ref, push, remove, update, onValue, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getDatabase, ref, push, remove, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBkfrAmBYmqqmQ84-uHyMQVOpzDC1FUAkQ",
@@ -306,8 +323,11 @@ const firebaseConfig = {
   appId: "1:548672611233:web:05ecddfea11824f003a1e0"
 };
 
+const OWNER_EMAIL = "burgerandjay@gmail.com";
+
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+const auth = getAuth(app);
 const tradesRef = ref(db, 'trades');
 const symbolsRef = ref(db, 'symbols');
 const strategiesRef = ref(db, 'strategies');
@@ -328,6 +348,48 @@ const DEFAULT_STRATEGIES = [
 let trades = [], symbols = [...DEFAULT_SYMBOLS], strategies = [...DEFAULT_STRATEGIES];
 let imgData = null, editImgData = null, editOrigImg = null, charts = {}, currentPeriod = 'day';
 let customModalType = 'symbol';
+let isOwner = false;
+
+// ── 登入狀態管理 ──
+onAuthStateChanged(auth, user => {
+  if(user && user.email === OWNER_EMAIL){
+    isOwner = true;
+    $('login-bar').style.display = 'none';
+    $('user-bar').style.display = 'flex';
+    $('user-email').textContent = user.email;
+    $('main-content').style.display = 'block';
+    updateWriteUI();
+  } else if(user && user.email !== OWNER_EMAIL){
+    // 非擁有者，登出
+    isOwner = false;
+    signOut(auth);
+    alert('此帳號無權限存取，請使用正確的 Google 帳號登入。');
+  } else {
+    isOwner = false;
+    $('login-bar').style.display = 'flex';
+    $('user-bar').style.display = 'none';
+    $('main-content').style.display = 'block';
+    updateWriteUI();
+  }
+});
+
+function updateWriteUI(){
+  // 顯示/隱藏寫入相關按鈕
+  document.querySelectorAll('.owner-only').forEach(el=>{
+    el.style.display = isOwner ? '' : 'none';
+  });
+}
+
+window.loginWithGoogle = async function(){
+  try{
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
+  }catch(e){ alert('登入失敗：'+e.message); }
+};
+
+window.logoutUser = async function(){
+  await signOut(auth);
+};
 
 const $ = id => document.getElementById(id);
 $('f-date').value = new Date().toISOString().slice(0,16);
@@ -411,6 +473,7 @@ function renderCustomList() {
 }
 
 window.deleteCustomItem = async function(key) {
+  if(!isOwner){ alert('請先登入'); return; }
   if(!confirm('確定刪除這個項目？')) return;
   const isSymbol = customModalType === 'symbol';
   try {
@@ -419,6 +482,7 @@ window.deleteCustomItem = async function(key) {
 };
 
 window.openCustomModal = function(type) {
+  if(!isOwner){ alert('請先登入才能管理商品/策略'); return; }
   customModalType = type;
   $('custom-modal-title').textContent = type==='symbol' ? '管理交易商品' : '管理策略';
   $('custom-input').value = '';
@@ -429,6 +493,7 @@ window.openCustomModal = function(type) {
 };
 window.closeCustomModal = function(){ $('custom-modal').classList.remove('open'); };
 window.saveCustomItem = async function() {
+  if(!isOwner){ alert('請先登入'); return; }
   const val = $('custom-input').value.trim();
   if(!val){ alert('請輸入名稱'); return; }
   try {
@@ -451,6 +516,7 @@ window.clearImg = function(){ imgData=null; $('f-img').value=''; $('img-preview-
 
 // 新增交易
 window.addTrade = async function() {
+  if(!isOwner){ alert('請先登入才能新增紀錄'); return; }
   const sym=$('f-symbol').value, pnl=parseFloat($('f-pnl').value);
   if(!sym){showMsg('add','請選擇交易商品','#e74c3c');return;}
   if(isNaN(pnl)){showMsg('add','請輸入損益點數','#e74c3c');return;}
@@ -477,6 +543,7 @@ function showMsg(p,msg,color){const el=$(p+'-msg');el.textContent=msg;el.style.c
 
 // 刪除
 window.deleteTrade = async function(id){
+  if(!isOwner){ alert('請先登入才能刪除紀錄'); return; }
   if(!confirm('確定刪除這筆紀錄？'))return;
   setSyncStatus('syncing');
   try{await remove(ref(db,'trades/'+id));}
@@ -501,6 +568,7 @@ window.previewEditImg = function(input){
 window.clearEditImg = function(){editImgData=null;$('e-img').value='';$('e-img-preview-wrap').style.display='none';};
 window.closeEditModal = function(){$('edit-modal').classList.remove('open');};
 window.saveTrade = async function(){
+  if(!isOwner){ alert('請先登入才能編輯紀錄'); return; }
   const id=$('e-id').value, sym=$('e-symbol').value, pnl=parseFloat($('e-pnl').value);
   if(!sym){showMsg('edit','請選擇交易商品','#e74c3c');return;}
   if(isNaN(pnl)){showMsg('edit','請輸入損益點數','#e74c3c');return;}
